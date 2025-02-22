@@ -1,0 +1,353 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ORBIT - 测试BNB批量分发</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      padding: 15px;
+      background-color: #f7f7f7;
+      color: #333;
+      margin: 0;
+    }
+    h2 {
+      text-align: center;
+      color: #4CAF50;
+      font-size: 24px;
+      margin: 10px 0;
+    }
+    .button-group {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: center;
+      gap: 10px;
+      margin: 10px 0;
+    }
+    button {
+      padding: 10px 20px;
+      background-color: #4CAF50;
+      color: white;
+      border: none;
+      border-radius: 8px;
+      cursor: pointer;
+      font-size: 14px;
+      transition: background-color 0.3s;
+      flex: 1 1 100%;
+      max-width: 200px;
+    }
+    button:disabled {
+      background-color: #ccc;
+      cursor: not-allowed;
+    }
+    button:hover:not(:disabled) {
+      background-color: #45a049;
+    }
+    .input-group {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 10px;
+      margin: 10px 0;
+    }
+    input {
+      padding: 10px;
+      width: 100%;
+      max-width: 300px;
+      font-size: 14px;
+      border: 1px solid #ccc;
+      border-radius: 5px;
+      box-sizing: border-box;
+    }
+    #fileInput {
+      margin: 10px 0;
+    }
+    p {
+      text-align: center;
+      font-size: 14px;
+      margin: 5px 0;
+    }
+    .address-list {
+      margin-top: 15px;
+      max-height: 150px;
+      overflow-y: auto;
+      border: 1px solid #ccc;
+      padding: 10px;
+      background-color: #fff;
+      border-radius: 5px;
+      display: none;
+    }
+    .address-list ul {
+      list-style: none;
+      padding: 0;
+      margin: 0;
+    }
+    .address-list li {
+      padding: 8px;
+      border-bottom: 1px solid #eee;
+      font-size: 12px;
+      word-break: break-all;
+      display: block;
+    }
+    .address-list li:last-child {
+      border-bottom: none;
+    }
+    .address-list h3 {
+      margin: 0 0 10px 0;
+      font-size: 16px;
+    }
+    #progressLog {
+      margin-top: 15px;
+    }
+    .status {
+      padding: 10px;
+      border-radius: 5px;
+      font-size: 12px;
+      margin: 5px 0;
+    }
+    .success {
+      background-color: #d4edda;
+      color: #155724;
+    }
+    .error {
+      background-color: #f8d7da;
+      color: #721c24;
+    }
+    .info {
+      background-color: #cce5ff;
+      color: #004085;
+    }
+
+    @media (min-width: 600px) {
+      body {
+        padding: 20px;
+      }
+      h2 {
+        font-size: 28px;
+      }
+      button {
+        font-size: 16px;
+        flex: 0 1 auto;
+        max-width: 250px;
+      }
+      input, .address-list li, .status {
+        font-size: 16px;
+      }
+      .address-list {
+        max-height: 200px;
+      }
+      .address-list h3 {
+        font-size: 18px;
+      }
+    }
+    @media (max-width: 599px) {
+      h2 {
+        font-size: 20px;
+      }
+      button {
+        padding: 8px 16px;
+        font-size: 12px;
+      }
+      input {
+        font-size: 12px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <h2>ORBIT - 测试BNB批量分发</h2>
+
+  <div class="button-group">
+    <button id="connectWallet">连接钱包</button>
+    <button id="distributeTokens" disabled>批量分发测试BNB</button>
+  </div>
+
+  <div class="input-group">
+    <input type="number" id="tokenAmount" placeholder="输入每地址BNB数量" step="0.001" min="0" />
+    <input type="file" id="fileInput" accept=".xlsx" />
+  </div>
+
+  <p>钱包地址: <span id="walletAddress">尚未连接</span></p>
+  <p>BNB 余额: <span id="tokenBalance">0</span></p>
+
+  <div id="progressLog"></div>
+
+  <div id="addressListContainer" class="address-list">
+    <h3>待分发地址</h3>
+    <ul id="addressList"></ul>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/ethers@5.7.2/dist/ethers.umd.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.17.4/xlsx.full.min.js"></script>
+  <script>
+    let provider, signer, batchContract;
+    let wallets = [];
+
+    const bscTestnet = {
+      chainId: '0x61',
+      rpcUrl: 'https://data-seed-prebsc-1-s1.binance.org:8545/'
+    };
+
+    const batchContractAddress = "0x0Ff66Ba9f80c46e6d956d083837be3dc6AE5fF25";
+    const batchContractAbi = [
+      "function distributeBNB(address[] calldata recipients, uint256 amount) external payable"
+    ];
+
+    const connectWalletBtn = document.getElementById("connectWallet");
+    const distributeTokensBtn = document.getElementById("distributeTokens");
+    const walletAddressEl = document.getElementById("walletAddress");
+    const tokenBalanceEl = document.getElementById("tokenBalance");
+    const progressLog = document.getElementById("progressLog");
+    const addressListContainer = document.getElementById("addressListContainer");
+    const addressListEl = document.getElementById("addressList");
+
+    async function connectWallet() {
+      try {
+        if (!window.ethereum) throw new Error("请安装MetaMask！");
+        await window.ethereum.request({ method: 'eth_requestAccounts' });
+
+        provider = new ethers.providers.Web3Provider(window.ethereum);
+        signer = provider.getSigner();
+        const network = await provider.getNetwork();
+
+        if (network.chainId !== parseInt(bscTestnet.chainId)) {
+          try {
+            await window.ethereum.request({
+              method: 'wallet_switchEthereumChain',
+              params: [{ chainId: bscTestnet.chainId }],
+            });
+          } catch (switchError) {
+            if (switchError.code === 4902) {
+              await window.ethereum.request({
+                method: 'wallet_addEthereumChain',
+                params: [{
+                  chainId: bscTestnet.chainId,
+                  chainName: 'BSC Testnet',
+                  rpcUrls: [bscTestnet.rpcUrl],
+                  nativeCurrency: { name: 'BNB', symbol: 'BNB', decimals: 18 },
+                  blockExplorerUrls: ['https://testnet.bscscan.com']
+                }],
+              });
+            } else {
+              throw switchError;
+            }
+          }
+        }
+
+        const address = await signer.getAddress();
+        walletAddressEl.textContent = address;
+        const balance = await provider.getBalance(address);
+        tokenBalanceEl.textContent = ethers.utils.formatEther(balance);
+
+        batchContract = new ethers.Contract(batchContractAddress, batchContractAbi, signer);
+        distributeTokensBtn.disabled = wallets.length === 0;
+
+        // 连接成功后更新按钮文本
+        connectWalletBtn.textContent = "已连接";
+        connectWalletBtn.disabled = true; // 可选：禁用按钮避免重复点击
+        logMessage("钱包连接成功", 'success');
+      } catch (error) {
+        logMessage(`连接钱包失败: ${error.message}`, 'error');
+        console.error("连接钱包失败:", error);
+      }
+    }
+
+    async function distributeBNB(wallets, amount) {
+      const recipientAddresses = wallets.map(w => w['BSC钱包地址']?.trim()).filter(addr => ethers.utils.isAddress(addr));
+      if (recipientAddresses.length === 0) {
+        logMessage("没有有效地址可分发！", 'error');
+        return;
+      }
+
+      const amountPerAddress = ethers.utils.parseEther(amount.toString());
+      const totalAmount = amountPerAddress.mul(recipientAddresses.length);
+      const balance = await provider.getBalance(await signer.getAddress());
+
+      if (balance.lt(totalAmount)) {
+        logMessage("BNB余额不足，无法完成分发！", 'error');
+        return;
+      }
+
+      if (!confirm(`即将向 ${recipientAddresses.length} 个地址各分发 ${amount} BNB，总计 ${ethers.utils.formatEther(totalAmount)} BNB，是否继续？`)) {
+        return;
+      }
+
+      logMessage(`准备批量分发，总计 ${recipientAddresses.length} 个地址...`, 'info');
+      try {
+        const tx = await batchContract.distributeBNB(recipientAddresses, amountPerAddress, {
+          value: totalAmount,
+          gasLimit: ethers.utils.hexlify(100000 + recipientAddresses.length * 30000)
+        });
+        logMessage(`交易已提交，等待确认，交易哈希: ${tx.hash}`, 'info');
+        const receipt = await tx.wait();
+        logMessage(`批量分发成功，交易哈希: ${tx.hash}`, 'success');
+
+        const balance = await provider.getBalance(await signer.getAddress());
+        tokenBalanceEl.textContent = ethers.utils.formatEther(balance);
+      } catch (error) {
+        logMessage(`分发失败: ${error.message}`, 'error');
+      } finally {
+        distributeTokensBtn.disabled = false;
+      }
+    }
+
+    function logMessage(message, type) {
+      const logItem = document.createElement("div");
+      logItem.className = `status ${type}`;
+      logItem.textContent = message;
+      progressLog.appendChild(logItem);
+      progressLog.scrollTop = progressLog.scrollHeight;
+    }
+
+    function displayAddresses(wallets) {
+      addressListEl.innerHTML = '';
+      wallets.forEach(w => {
+        const addr = w['BSC钱包地址']?.trim();
+        const li = document.createElement('li');
+        li.textContent = addr || '空';
+        if (!ethers.utils.isAddress(addr)) {
+          li.style.color = 'red';
+        }
+        addressListEl.appendChild(li);
+      });
+      addressListContainer.style.display = 'block';
+    }
+
+    connectWalletBtn.addEventListener('click', connectWallet);
+
+    document.getElementById("fileInput").addEventListener("change", (event) => {
+      const file = event.target.files[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        try {
+          const data = XLSX.read(e.target.result, { type: 'binary' });
+          wallets = XLSX.utils.sheet_to_json(data.Sheets[data.SheetNames[0]]);
+          if (!wallets.every(w => w['BSC钱包地址'])) throw new Error("Excel文件中缺少'BSC钱包地址'列！");
+          displayAddresses(wallets);
+          logMessage(`成功加载 ${wallets.length} 个地址`, 'success');
+          distributeTokensBtn.disabled = !signer;
+        } catch (error) {
+          logMessage(`文件解析失败: ${error.message}`, 'error');
+        }
+      };
+      reader.readAsBinaryString(file);
+    });
+
+    distributeTokensBtn.addEventListener('click', async () => {
+      if (wallets.length === 0) {
+        logMessage("请先上传包含地址的Excel文件！", 'error');
+        return;
+      }
+      const amountInput = document.getElementById("tokenAmount").value;
+      if (!amountInput || amountInput <= 0) {
+        logMessage("请输入有效的BNB数量！", 'error');
+        return;
+      }
+      distributeTokensBtn.disabled = true;
+      await distributeBNB(wallets, amountInput);
+    });
+  </script>
+</body>
+</html>

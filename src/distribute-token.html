@@ -1,0 +1,382 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ORBIT - 批量代币分发</title>
+  <style>
+    body {
+      font-family: 'Arial', sans-serif;
+      background-color: #f4f7fc;
+      color: #333;
+      margin: 0;
+      padding: 0;
+    }
+    h2 {
+      text-align: center;
+      margin-top: 20px;
+      color: #4CAF50;
+      font-size: 24px;
+    }
+    .container {
+      width: 90%;
+      max-width: 800px; /* 限制最大宽度 */
+      margin: 0 auto;
+      padding: 15px;
+      background-color: white;
+      box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+      border-radius: 8px;
+      margin-top: 20px;
+    }
+    .input-group {
+      margin: 10px 0;
+      display: flex;
+      flex-wrap: wrap; /* 允许换行 */
+      justify-content: space-between;
+      align-items: center;
+      gap: 10px; /* 元素间距 */
+    }
+    .input-group input, .input-group button, .input-group span {
+      flex: 1 1 100%; /* 默认占满宽度 */
+      padding: 10px;
+      border: 1px solid #ddd;
+      border-radius: 5px;
+      font-size: 14px;
+      box-sizing: border-box; /* 包含边框和内边距 */
+    }
+    .input-group button {
+      background-color: #4CAF50;
+      color: white;
+      border: none;
+      cursor: pointer;
+    }
+    .input-group button:disabled {
+      background-color: gray;
+      cursor: not-allowed;
+    }
+    .file-upload {
+      text-align: center;
+      margin-top: 15px;
+    }
+    .file-upload input {
+      width: 100%;
+      padding: 10px;
+      border: 1px solid #ddd;
+      border-radius: 5px;
+      font-size: 14px;
+    }
+    .progress-log {
+      margin-top: 15px;
+      background-color: #fafafa;
+      padding: 10px;
+      border: 1px solid #ddd;
+      max-height: 150px;
+      overflow-y: auto;
+      font-size: 12px;
+    }
+    .status.success { color: green; }
+    .status.error { color: red; }
+    .address-list {
+      margin-top: 15px;
+    }
+    .address-list table {
+      width: 100%;
+      border-collapse: collapse;
+    }
+    .address-list th, .address-list td {
+      padding: 8px;
+      text-align: left;
+      border-bottom: 1px solid #ddd;
+      font-size: 12px;
+      word-break: break-all; /* 长地址自动换行 */
+    }
+    .address-list th {
+      background-color: #f2f2f2;
+    }
+    .address-list td.invalid {
+      color: red;
+    }
+    .progress-bar-container {
+      margin-top: 15px;
+    }
+    .progress-bar {
+      width: 100%;
+      height: 8px;
+      background-color: #ddd;
+      border-radius: 4px;
+    }
+    .progress-bar-fill {
+      height: 100%;
+      background-color: #4CAF50;
+      border-radius: 4px;
+      transition: width 0.5s;
+    }
+
+    /* 媒体查询：手机端调整 */
+    @media (min-width: 600px) {
+      .input-group input, .input-group button {
+        flex: 1 1 45%; /* 大屏幕时两列布局 */
+      }
+      .input-group span {
+        flex: 1 1 100%; /* 钱包地址和余额占满一行 */
+      }
+      .container {
+        padding: 20px;
+      }
+      h2 {
+        font-size: 28px;
+      }
+      .progress-log, .address-list th, .address-list td {
+        font-size: 14px;
+      }
+      .progress-bar {
+        height: 10px;
+      }
+    }
+    @media (max-width: 599px) {
+      .input-group input, .input-group button, .input-group span {
+        flex: 1 1 100%; /* 小屏幕时单列布局 */
+      }
+      .container {
+        width: 95%;
+        margin-top: 10px;
+      }
+      h2 {
+        font-size: 20px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h2>ORBIT - 批量代币分发</h2>
+
+    <div class="input-group">
+      <button id="distributeTokens" disabled>批量分发代币</button>
+    </div>
+
+    <div class="input-group">
+      <button id="connectWallet">连接钱包</button>
+      <span id="walletAddress">钱包地址: 尚未连接</span>
+      <span id="tokenBalance">代币余额: 0</span>
+    </div>
+
+    <div class="input-group">
+      <input type="text" id="tokenAddress" placeholder="输入代币合约地址" />
+      <input type="number" id="tokenAmount" placeholder="输入每地址代币数量" step="0.01" min="0" />
+    </div>
+
+    <div class="file-upload">
+      <input type="file" id="fileInput" accept=".xlsx" />
+    </div>
+
+    <div class="address-list">
+      <h3>待分发地址列表</h3>
+      <table>
+        <thead>
+          <tr><th>序号</th><th>BSC钱包地址</th></tr>
+        </thead>
+        <tbody id="addressTableBody"></tbody>
+      </table>
+    </div>
+
+    <div class="progress-bar-container">
+      <div class="progress-bar">
+        <div id="progressBarFill" class="progress-bar-fill" style="width: 0%"></div>
+      </div>
+    </div>
+
+    <div class="progress-log" id="progressLog"></div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/ethers@5.7.2/dist/ethers.umd.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.17.4/xlsx.full.min.js"></script>
+  <script>
+    let provider, signer, tokenContract, batchContract;
+    const batchContractAddress = "0xC3B77d9A07E703e019c560dc77E7Fc14704D0B78"; // 已提供地址
+    const tokenAbi = [
+      { "constant": true, "inputs": [{ "name": "account", "type": "address" }], "name": "balanceOf", "outputs": [{ "name": "", "type": "uint256" }], "type": "function" },
+      { "constant": false, "inputs": [{ "name": "recipient", "type": "address" }, { "name": "amount", "type": "uint256" }], "name": "approve", "outputs": [{ "name": "", "type": "bool" }], "type": "function" },
+      { "constant": true, "inputs": [], "name": "decimals", "outputs": [{ "name": "", "type": "uint8" }], "type": "function" },
+      { "constant": true, "inputs": [{ "name": "owner", "type": "address" }, { "name": "spender", "type": "address" }], "name": "allowance", "outputs": [{ "name": "", "type": "uint256" }], "type": "function" }
+    ];
+    const batchContractAbi = [
+      "function distributeTokens(address token, address[] calldata recipients, uint256 amount) external"
+    ];
+    let wallets = [];
+
+    const connectWalletBtn = document.getElementById("connectWallet");
+    const distributeTokensBtn = document.getElementById("distributeTokens");
+    const tokenAddressInput = document.getElementById("tokenAddress");
+    const tokenAmountInput = document.getElementById("tokenAmount");
+    const walletAddressEl = document.getElementById("walletAddress");
+    const tokenBalanceEl = document.getElementById("tokenBalance");
+    const addressTableBody = document.getElementById("addressTableBody");
+    const progressLog = document.getElementById("progressLog");
+    const progressBarFill = document.getElementById("progressBarFill");
+
+    async function connectWallet() {
+      try {
+        if (!window.ethereum) throw new Error("请安装MetaMask！");
+        await window.ethereum.request({ method: 'eth_requestAccounts' });
+        provider = new ethers.providers.Web3Provider(window.ethereum);
+        signer = provider.getSigner();
+        const address = await signer.getAddress();
+        walletAddressEl.textContent = `钱包地址: ${address}`;
+
+        batchContract = new ethers.Contract(batchContractAddress, batchContractAbi, signer);
+        await updateTokenInfo();
+        distributeTokensBtn.disabled = true;
+      } catch (error) {
+        updateProgressLog(`连接钱包失败: ${error.message}`, true);
+        console.error("连接钱包失败:", error);
+      }
+    }
+
+    async function updateTokenInfo() {
+      const tokenAddress = tokenAddressInput.value.trim();
+      if (!ethers.utils.isAddress(tokenAddress)) {
+        tokenBalanceEl.textContent = "代币余额: 无效地址";
+        distributeTokensBtn.disabled = true;
+        return;
+      }
+
+      try {
+        tokenContract = new ethers.Contract(tokenAddress, tokenAbi, signer);
+        const decimals = await tokenContract.decimals();
+        const balance = await tokenContract.balanceOf(await signer.getAddress());
+        const formattedBalance = ethers.utils.formatUnits(balance, decimals);
+        tokenBalanceEl.textContent = `代币余额: ${formattedBalance}`;
+        distributeTokensBtn.disabled = wallets.length === 0 || formattedBalance === "0.0";
+      } catch (error) {
+        tokenBalanceEl.textContent = "代币余额: 加载失败";
+        distributeTokensBtn.disabled = true;
+        updateProgressLog(`代币信息加载失败: ${error.message}`, true);
+      }
+    }
+
+    function displayAddresses(wallets) {
+      addressTableBody.innerHTML = "";
+      wallets.forEach((wallet, index) => {
+        const address = wallet['BSC钱包地址']?.trim();
+        const isValid = ethers.utils.isAddress(address);
+        const row = document.createElement("tr");
+        row.innerHTML = `
+          <td>${index + 1}</td>
+          <td class="${isValid ? "" : "invalid"}">${address || "空"}</td>
+        `;
+        addressTableBody.appendChild(row);
+      });
+    }
+
+    function parseExcel(file) {
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = function (event) {
+        try {
+          const data = event.target.result;
+          const workbook = XLSX.read(data, { type: "binary" });
+          const sheet = workbook.Sheets[workbook.SheetNames[0]];
+          wallets = XLSX.utils.sheet_to_json(sheet);
+          if (!wallets.every(w => w['BSC钱包地址'])) throw new Error("Excel文件中缺少'BSC钱包地址'列");
+          displayAddresses(wallets);
+          updateProgressLog(`成功加载 ${wallets.length} 个地址`);
+          distributeTokensBtn.disabled = !tokenContract || tokenBalanceEl.textContent === "代币余额: 0";
+        } catch (error) {
+          updateProgressLog(`文件解析失败: ${error.message}`, true);
+        }
+      };
+      reader.readAsBinaryString(file);
+    }
+
+    async function distributeTokens() {
+      console.log("分发按钮被点击");
+      const amount = parseFloat(tokenAmountInput.value);
+      if (!amount || amount <= 0) {
+        updateProgressLog("请输入有效的分发金额", true);
+        return;
+      }
+
+      const tokenAddress = tokenAddressInput.value.trim();
+      if (!ethers.utils.isAddress(tokenAddress)) {
+        updateProgressLog("无效的代币合约地址", true);
+        return;
+      }
+
+      const validWallets = wallets.filter(wallet => ethers.utils.isAddress(wallet['BSC钱包地址']));
+      if (validWallets.length === 0) {
+        updateProgressLog("没有有效的钱包地址", true);
+        return;
+      }
+
+      const addresses = validWallets.map(wallet => wallet['BSC钱包地址']);
+      const decimals = await tokenContract.decimals();
+      const amountInWei = ethers.utils.parseUnits(amount.toString(), decimals);
+      const totalAmount = amountInWei.mul(addresses.length);
+
+      try {
+        const balance = await tokenContract.balanceOf(await signer.getAddress());
+        if (balance.lt(totalAmount)) {
+          updateProgressLog("钱包余额不足", true);
+          return;
+        }
+
+        updateProgressLog("正在检查授权...");
+        updateProgressBar(10);
+        const allowance = await tokenContract.allowance(await signer.getAddress(), batchContractAddress);
+        if (allowance.lt(totalAmount)) {
+          const approveTx = await tokenContract.approve(batchContractAddress, totalAmount);
+          updateProgressLog("正在授权合约使用代币...");
+          await approveTx.wait();
+          updateProgressLog(`授权成功，交易哈希: ${approveTx.hash}`);
+          updateProgressBar(50);
+        }
+
+        if (!confirm(`即将向 ${addresses.length} 个地址各分发 ${amount} 代币，总计 ${ethers.utils.formatUnits(totalAmount, decimals)}，是否继续？`)) {
+          updateProgressLog("分发已取消");
+          updateProgressBar(0);
+          return;
+        }
+
+        updateProgressLog(`准备分发 ${addresses.length} 个地址...`);
+        updateProgressBar(70);
+        const distributeTx = await batchContract.distributeTokens(tokenAddress, addresses, amountInWei, {
+          gasLimit: ethers.utils.hexlify(100000 + addresses.length * 50000)
+        });
+        updateProgressLog(`交易已提交，交易哈希: ${distributeTx.hash}`);
+        await distributeTx.wait();
+        updateProgressLog(`代币分发成功，交易哈希: ${distributeTx.hash}`);
+        updateProgressBar(100);
+
+        await updateTokenInfo();
+      } catch (error) {
+        updateProgressLog(`分发失败: ${error.message}`, true);
+        updateProgressBar(0);
+        console.error(error);
+      } finally {
+        distributeTokensBtn.disabled = false;
+      }
+    }
+
+    function updateProgressLog(message, isError = false) {
+      const logItem = document.createElement("div");
+      logItem.classList.add("status", isError ? "error" : "success");
+      logItem.textContent = message;
+      progressLog.appendChild(logItem);
+      progressLog.scrollTop = progressLog.scrollHeight;
+    }
+
+    function updateProgressBar(percentage) {
+      progressBarFill.style.width = `${percentage}%`;
+    }
+
+    connectWalletBtn.addEventListener("click", connectWallet);
+    tokenAddressInput.addEventListener("input", updateTokenInfo);
+    document.getElementById("fileInput").addEventListener("change", (event) => parseExcel(event.target.files[0]));
+    distributeTokensBtn.addEventListener("click", async () => {
+      distributeTokensBtn.disabled = true;
+      await distributeTokens();
+    });
+  </script>
+</body>
+</html>
